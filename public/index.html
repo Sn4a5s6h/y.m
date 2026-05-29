@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>ربط واتساب - الخدمة السريعة</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #075E54 0%, #128C7E 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 25px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .whatsapp-icon {
+            width: 80px;
+            height: 80px;
+            background: #25D366;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 50px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37, 211, 102, 0.4); }
+            70% { transform: scale(1.05); box-shadow: 0 0 0 20px rgba(37, 211, 102, 0); }
+            100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(37, 211, 102, 0); }
+        }
+
+        h1 {
+            color: #075E54;
+            margin-bottom: 10px;
+            font-size: 24px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .input-group {
+            margin-bottom: 20px;
+            text-align: right;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #075E54;
+            font-weight: bold;
+        }
+
+        input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #ddd;
+            border-radius: 12px;
+            font-size: 16px;
+            transition: all 0.3s;
+            direction: ltr;
+            text-align: left;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #25D366;
+            box-shadow: 0 0 0 3px rgba(37, 211, 102, 0.1);
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            background: #25D366;
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            margin-top: 10px;
+        }
+
+        button:hover:not(:disabled) {
+            background: #128C7E;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 12px;
+            display: none;
+        }
+
+        .status.info {
+            background: #E3F2FD;
+            color: #1976D2;
+            border: 1px solid #90CAF9;
+        }
+
+        .status.success {
+            background: #E8F5E9;
+            color: #2E7D32;
+            border: 1px solid #A5D6A7;
+        }
+
+        .status.error {
+            background: #FFEBEE;
+            color: #C62828;
+            border: 1px solid #EF9A9A;
+        }
+
+        .status.warning {
+            background: #FFF3E0;
+            color: #E65100;
+            border: 1px solid #FFCC80;
+        }
+
+        .code-box {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 28px;
+            letter-spacing: 5px;
+            font-weight: bold;
+            color: #075E54;
+            text-align: center;
+            direction: ltr;
+        }
+
+        .instructions {
+            text-align: right;
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 12px;
+            font-size: 14px;
+        }
+
+        .instructions ol {
+            margin-right: 20px;
+            margin-top: 10px;
+        }
+
+        .instructions li {
+            margin: 10px 0;
+        }
+
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-right: 10px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="whatsapp-icon">
+            💬
+        </div>
+        
+        <h1>ربط حساب واتساب</h1>
+        <div class="subtitle">أدخل رقم هاتفك لربطه بخدمتنا</div>
+        
+        <div class="input-group">
+            <label>📱 رقم الهاتف (مع مفتاح الدولة)</label>
+            <input type="tel" id="phoneNumber" placeholder="مثال: 966512345678" dir="ltr">
+            <small style="color: #666; display: block; margin-top: 5px;">✏️ اكتب الرقم بدون + أو مسافات</small>
+        </div>
+        
+        <button id="submitBtn" onclick="requestPairing()">
+            🔗 طلب رمز الاقتران
+        </button>
+        
+        <div id="status" class="status"></div>
+        
+        <div id="codeSection" class="hidden">
+            <div class="code-box" id="codeDisplay"></div>
+            
+            <div class="instructions">
+                <strong>📌 كيفية استخدام الرمز:</strong>
+                <ol>
+                    <li>افتح تطبيق <strong>واتساب</strong> على هاتفك</li>
+                    <li>اذهب إلى <strong>الإعدادات (Settings)</strong></li>
+                    <li>اختر <strong>الأجهزة المرتبطة (Linked Devices)</strong></li>
+                    <li>اضغط على <strong>ربط جهاز (Link a Device)</strong></li>
+                    <li>اختر <strong>الربط برقم الهاتف</strong> (Link with phone number)</li>
+                    <li>أدخل الرمز الظاهر أعلاه</li>
+                </ol>
+                <p style="margin-top: 10px; color: #E65100;">
+                    ⚠️ الرمز صالح لمدة 3 دقائق فقط
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        let isConnected = false;
+
+        // الاتصال بالسيرفر فور تحميل الصفحة
+        function connectSocket() {
+            const statusDiv = document.getElementById('status');
+            showStatus('جاري الاتصال بالخادم...', 'info');
+            
+            socket = io();
+            
+            socket.on('connect', () => {
+                console.log('✅ متصل بالسيرفر');
+                isConnected = true;
+                showStatus('✅ جاهز! أدخل رقم هاتفك', 'success');
+                document.getElementById('submitBtn').disabled = false;
+            });
+            
+            socket.on('ready', (data) => {
+                console.log('السيرفر جاهز:', data);
+                showStatus('✅ السيرفر جاهز للاستقبال', 'success');
+            });
+            
+            socket.on('status', (message) => {
+                showStatus(message, 'info');
+            });
+            
+            socket.on('pairing_code', (data) => {
+                console.log('رمز الاقتران:', data);
+                
+                // إخفاء زر الإرسال وعرض الرمز
+                document.getElementById('submitBtn').style.display = 'none';
+                document.getElementById('phoneNumber').disabled = true;
+                
+                // عرض الرمز
+                const codeDiv = document.getElementById('codeSection');
+                const codeDisplay = document.getElementById('codeDisplay');
+                codeDisplay.innerHTML = data.code;
+                codeDiv.classList.remove('hidden');
+                
+                showStatus('✅ تم إنشاء رمز الاقتران! أدخله في واتساب', 'success');
+            });
+            
+            socket.on('connected', (data) => {
+                showStatus(`✅ ${data.message}`, 'success');
+                document.getElementById('submitBtn').style.display = 'none';
+                document.getElementById('phoneNumber').disabled = true;
+            });
+            
+            socket.on('error', (message) => {
+                showStatus(`❌ ${message}`, 'error');
+                document.getElementById('submitBtn').disabled = false;
+            });
+            
+            socket.on('disconnect', () => {
+                isConnected = false;
+                showStatus('❌ انقطع الاتصال بالخادم، جاري إعادة المحاولة...', 'error');
+                document.getElementById('submitBtn').disabled = true;
+                setTimeout(connectSocket, 3000);
+            });
+        }
+        
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+            statusDiv.style.display = 'block';
+        }
+        
+        function requestPairing() {
+            if (!isConnected) {
+                showStatus('❌ لا يوجد اتصال بالخادم، جاري إعادة المحاولة...', 'error');
+                connectSocket();
+                return;
+            }
+            
+            const phoneInput = document.getElementById('phoneNumber');
+            let phoneNumber = phoneInput.value.trim();
+            
+            if (!phoneNumber) {
+                showStatus('❌ يرجى إدخال رقم الهاتف', 'error');
+                return;
+            }
+            
+            // تنظيف الرقم من أي رموز
+            phoneNumber = phoneNumber.replace(/[^0-9]/g, '');
+            
+            if (phoneNumber.length < 8) {
+                showStatus('❌ رقم الهاتف غير صحيح (يجب أن يكون 8 أرقام على الأقل)', 'error');
+                return;
+            }
+            
+            // تعطيل الزر أثناء المعالجة
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loader"></span> جاري الطلب...';
+            
+            socket.emit('pair_with_number', { phoneNumber: phoneNumber });
+        }
+        
+        // بدء الاتصال عند تحميل الصفحة
+        connectSocket();
+    </script>
+</body>
+  </html>
