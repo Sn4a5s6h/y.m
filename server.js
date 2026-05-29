@@ -1,14 +1,7 @@
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
-const { 
-    default: makeWASocket, 
-    useMultiFileAuthState, 
-    DisconnectReason,
-    fetchLatestBaileysVersion,
-    Browsers,
-    delay 
-} = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = require('@whiskeysockets/baileys');
 const { Boom } = require('@hapi/boom');
 const path = require('path');
 const fs = require('fs');
@@ -16,10 +9,8 @@ const fs = require('fs');
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
-    cors: {
-        origin: "*",
-        methods: ["GET", "POST"]
-    }
+    cors: { origin: "*", methods: ["GET", "POST"] },
+    transports: ['websocket', 'polling']
 });
 
 app.use(express.static(path.join(__dirname, 'public')));
@@ -29,202 +20,96 @@ if (!fs.existsSync(SESSIONS_DIR)) fs.mkdirSync(SESSIONS_DIR);
 
 const activeSessions = new Map();
 
-async function createWhatsAppSession(socketId, sessionFolder, phoneNumberForPairing = null) {
-    console.log(`[${socketId}] جاري إنشاء جلسة جديدة...`);
+async function createWhatsAppSession(socketId, sessionFolder, phoneNumber = null) {
+    console.log(`[${socketId}] بدء الجلسة...`);
     
-    try {
-        const { version } = await fetchLatestBaileysVersion();
-        const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
-        
-        const sock = makeWASocket({
-            version,
-            auth: state,
-            printQRInTerminal: false,
-            browser: Browsers.macOS('Chrome'),  // 🔑 مهم جدًا للاقتران
-            defaultQueryTimeoutMs: 60000,
-            keepAliveIntervalMs: 30000,
-            generateHighQualityLinkPreview: false,
-            patchMessageBeforeSending: (message) => {
-                const requiresPatch = !!(
-                    message.buttonsMessage ||
-                    message.templateMessage ||
-                    message.listMessage
-                );
-                if (requiresPatch) {
-                    message = {
-                        viewOnceMessage: {
-                            message: {
-                                messageContextInfo: {
-                                    deviceListMetadataVersion: 2,
-                                    deviceListMetadata: {},
-                                },
-                                ...message,
-                            },
-                        },
-                    };
-                }
-                return message;
-            },
-        });
-        
-        sock.ev.on('creds.update', saveCreds);
-        
-        // 🔑 الحل السحري: الانتظار حتى يصبح الاتصال جاهزًا قبل طلب الرمز
-        sock.ev.on('connection.update', async (update) => {
-            const { connection, lastDisconnect, qr } = update;
-            
-            console.log(`[${socketId}] حالة الاتصال:`, connection);
-            
-            if (connection === 'close') {
-                const statusCode = (lastDisconnect?.error instanceof Boom) 
-                    ? lastDisconnect.error.output.statusCode 
-                    : null;
-                
-                if (statusCode === DisconnectReason.loggedOut) {
-                    console.log(`[${socketId}] تم تسجيل الخروج`);
-                    io.to(socketId).emit('error', 'تم تسجيل الخروج، يرجى إعادة المحاولة');
-                    activeSessions.delete(socketId);
-                } else {
-                    console.log(`[${socketId}] تم قطع الاتصال، إعادة المحاولة...`);
-                    setTimeout(() => createWhatsAppSession(socketId, sessionFolder), 3000);
-                }
+    const { state, saveCreds } = await useMultiFileAuthState(sessionFolder);
+    
+    const sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: false,
+        browser: Browsers.macOS('Chrome'),
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000,
+        markOnlineOnConnect: false,
+        patchMessageBeforeSending: (message) => message
+    });
+    
+    sock.ev.on('creds.update', saveCreds);
+    
+    // انتظار جاهزية الاتصال
+    await new Promise((resolve) => {
+        const checkReady = (update) => {
+            if (update.connection === 'open') {
+                sock.ev.off('connection.update', checkReady);
+                resolve();
             }
-            
-            if (connection === 'open') {
-                console.log(`[${socketId}] ✅ تم الاتصال بنجاح!`);
-                io.to(socketId).emit('connected', {
-                    message: 'تم ربط الحساب بنجاح!',
-                    sessionId: socketId
-                });
-            }
-            
-            // 🔑 الأهم: طلب رمز الاقتران عند وصول حدث 'connecting'
-            if (connection === 'connecting' && phoneNumberForPairing && !sock.pairingRequested) {
-                sock.pairingRequested = true;
-                console.log(`[${socketId}] جاري طلب رمز الاقتران للرقم: ${phoneNumberForPairing}`);
-                
-                try {
-                    // تنظيف رقم الهاتف
-                    const cleanNumber = phoneNumberForPairing.replace(/[^0-9]/g, '');
-                    const code = await sock.requestPairingCode(cleanNumber);
-                    console.log(`[${socketId}] 🔐 رمز الاقتران: ${code}`);
-                    
-                    io.to(socketId).emit('pairing_code', {
-                        code: code,
-                        phoneNumber: cleanNumber,
-                        message: `رمز الاقتران الخاص بك هو: ${code}`
-                    });
-                } catch (error) {
-                    console.error(`[${socketId}] فشل طلب الرمز:`, error);
-                    io.to(socketId).emit('error', 'فشل في طلب رمز الاقتران، تأكد من صحة الرقم وحاول مرة أخرى');
-                    sock.pairingRequested = false;
-                }
-            }
-        });
-        
-        // إذا كان هناك رقم هاتف للاقتران وكانت الجلسة غير مسجلة
-        if (phoneNumberForPairing && !state.creds.registered && !sock.pairingRequested) {
-            // ننتظر قليلاً حتى يتم تهيئة الاتصال
-            setTimeout(async () => {
-                if (!sock.pairingRequested) {
-                    sock.pairingRequested = true;
-                    try {
-                        const cleanNumber = phoneNumberForPairing.replace(/[^0-9]/g, '');
-                        const code = await sock.requestPairingCode(cleanNumber);
-                        console.log(`[${socketId}] 🔐 رمز الاقتران (بعد التأخير): ${code}`);
-                        io.to(socketId).emit('pairing_code', {
-                            code: code,
-                            phoneNumber: cleanNumber,
-                            message: `رمز الاقتران الخاص بك هو: ${code}`
-                        });
-                    } catch (error) {
-                        console.error(`[${socketId}] فشل طلب الرمز بعد التأخير:`, error);
-                        io.to(socketId).emit('error', 'فشل في طلب رمز الاقتران، تأكد من صحة الرقم وحاول مرة أخرى');
-                        sock.pairingRequested = false;
-                    }
-                }
-            }, 3000);
+        };
+        sock.ev.on('connection.update', checkReady);
+    });
+    
+    // طلب رمز الاقتران إذا تم توفير رقم
+    if (phoneNumber && !state.creds.registered) {
+        console.log(`[${socketId}] طلب رمز للرقم: ${phoneNumber}`);
+        try {
+            const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
+            const code = await sock.requestPairingCode(cleanNumber);
+            console.log(`[${socketId}] ✅ الرمز: ${code}`);
+            io.to(socketId).emit('pairing_code', { code, phoneNumber: cleanNumber });
+            return { sock, code };
+        } catch (error) {
+            console.error(`[${socketId}] خطأ:`, error);
+            io.to(socketId).emit('error', 'فشل طلب الرمز، تأكد من الرقم واترك 30 ثانية ثم حاول مجدداً');
+            throw error;
         }
-        
-        return sock;
-        
-    } catch (error) {
-        console.error(`[${socketId}] خطأ في إنشاء الجلسة:`, error);
-        io.to(socketId).emit('error', 'حدث خطأ في الخادم');
-        throw error;
     }
+    
+    return { sock };
 }
 
-// Socket.IO events
 io.on('connection', (socket) => {
-    console.log('🟢 عميل متصل:', socket.id);
+    console.log('🟢 متصل:', socket.id);
     
     const sessionFolder = path.join(SESSIONS_DIR, socket.id);
     if (!fs.existsSync(sessionFolder)) fs.mkdirSync(sessionFolder);
     
-    activeSessions.set(socket.id, { 
-        sessionId: socket.id, 
-        sock: null, 
-        folder: sessionFolder,
-        pendingPhone: null
-    });
-    
-    socket.emit('ready', { 
-        message: '✅ النظام جاهز! أدخل رقم هاتفك لربط حساب واتساب.',
-        sessionId: socket.id
-    });
+    socket.emit('ready', { message: '✅ النظام جاهز! أدخل رقم هاتفك.' });
     
     socket.on('request_pairing', async (data) => {
         const { phoneNumber } = data;
+        const cleanNumber = phoneNumber?.replace(/[^0-9]/g, '');
         
-        if (!phoneNumber || phoneNumber.length < 8) {
+        if (!cleanNumber || cleanNumber.length < 8) {
             socket.emit('error', 'رقم الهاتف غير صحيح');
             return;
         }
         
-        const cleanNumber = phoneNumber.replace(/[^0-9]/g, '');
-        console.log(`[${socket.id}] 📱 طلب اقتران للرقم: ${cleanNumber}`);
+        console.log(`[${socket.id}] 📱 طلب للرقم: ${cleanNumber}`);
         socket.emit('status', 'جاري الاتصال بخوادم واتساب...');
         
         try {
-            const session = activeSessions.get(socket.id);
+            // حذف الجلسة القديمة
+            try { fs.rmSync(sessionFolder, { recursive: true, force: true }); } catch(e) {}
+            fs.mkdirSync(sessionFolder);
             
-            // حذف المجلد القديم لبدء جلسة نظيفة
-            try {
-                fs.rmSync(session.folder, { recursive: true, force: true });
-            } catch(e) {}
-            fs.mkdirSync(session.folder);
-            
-            // إنشاء جلسة جديدة مع رقم الهاتف
-            const sock = await createWhatsAppSession(socket.id, session.folder, cleanNumber);
-            session.sock = sock;
-            activeSessions.set(socket.id, session);
-            
+            await createWhatsAppSession(socket.id, sessionFolder, cleanNumber);
         } catch (error) {
-            console.error(`[${socket.id}] خطأ:`, error);
-            socket.emit('error', 'حدث خطأ في الخادم، يرجى المحاولة مرة أخرى');
+            console.error(`[${socket.id}] فشل:`, error);
+            socket.emit('error', 'فشل الاتصال، حاول مرة أخرى خلال 30 ثانية');
         }
     });
     
     socket.on('disconnect', () => {
-        console.log('🔴 عميل قطع الاتصال:', socket.id);
-        const session = activeSessions.get(socket.id);
-        if (session && session.sock) {
-            session.sock.end(new Error('تم قطع الاتصال من قبل العميل'));
-        }
+        console.log('🔴 قطع:', socket.id);
         activeSessions.delete(socket.id);
     });
 });
 
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`
-    ═══════════════════════════════════════════════════
-    🚀 نظام ربط واتساب عن بُعد يعمل على:
-    🌐 http://localhost:${PORT}
-    
-    📱 شارك هذا الرابط مع العميل لربط حسابه
-    ⚡ يستخدم النظام Pairing Code بدون QR كود
-    ═══════════════════════════════════════════════════
-    `);
+    console.log(`🚀 يعمل على: https://y-m.onrender.com`);
 }); 
