@@ -1,23 +1,33 @@
 {
-  "name": "whatsapp-telegram-monitor",
+  "name": "whatsapp-monitor-telegram",
   "version": "1.0.0",
-  "type": "module",
-  "description": "مراقبة جميع رسائل واتساب وإرسالها إلى تليجرام مع كشف البطاقات الائتمانية",
+  "description": "نظام مراقبة رسائل واتساب وإعادة توجيهها إلى تليجرام مع إرسال رسائل وإدارة الحسابات",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js"
+    "dev": "nodemon server.js"
   },
+  "keywords": [
+    "whatsapp",
+    "telegram",
+    "baileys",
+    "whatsapp-monitor",
+    "whatsapp-bot"
+  ],
+  "author": "",
+  "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "6.7.0",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "node-telegram-bot-api": "^0.66.0",
-    "socket.io": "^4.7.5"
+    "@whiskeysockets/baileys": "^6.6.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "node-telegram-bot-api": "^0.61.0",
+    "socket.io": "^4.6.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   },
   "engines": {
-    "node": ">=20.19.0"
-  },
-  "author": "",
-  "license": "MIT"
+    "node": ">=18.0.0"
+  }
 }
