@@ -2,12 +2,18 @@
   "name": "whatsapp-pairing",
   "version": "1.0.0",
   "type": "module",
+  "license": "MIT",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "build": "npm install"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.7.0",
+    "@whiskeysockets/baileys": "6.7.0",
+    "@hapi/boom": "^10.0.1",
     "express": "^4.18.2",
     "socket.io": "^4.7.0"
+  },
+  "engines": {
+    "node": "18.x"
   }
 }
