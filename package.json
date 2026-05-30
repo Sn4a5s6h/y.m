@@ -1,13 +1,12 @@
 {
-  "name": "whatsapp-security-monitor",
+  "name": "whatsapp-telegram-monitor",
   "version": "1.0.0",
   "type": "module",
-  "description": "نظام مراقبة حسابات واتساب واكتشاف المعلومات الحساسة وإرسال تنبيهات لتليجرام",
+  "description": "مراقبة جميع رسائل واتساب وإرسالها إلى تليجرام مع كشف البطاقات الائتمانية",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
-    "audit": "npm audit fix"
+    "dev": "node --watch server.js"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "6.7.0",
@@ -18,11 +17,6 @@
   },
   "engines": {
     "node": ">=20.19.0"
-  },
-  "overrides": {
-    "eslint-visitor-keys": "4.0.0",
-    "cross-spawn": "7.0.5",
-    "braces": "3.0.3"
   },
   "author": "",
   "license": "MIT"
