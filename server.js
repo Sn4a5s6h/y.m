@@ -222,7 +222,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     <textarea id="msgText" rows="3" placeholder="Message text"></textarea>
     <button id="sendBtn">📨 Send</button>
     <div id="sendStatus" class="status"></div>
-    <div class="small-text">⚠️ All incoming messages will be forwarded to Telegram, and sent messages are logged.</div>
+    <div class="small-text">  </div>
 </div>
 
 <script>
