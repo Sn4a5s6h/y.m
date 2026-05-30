@@ -8,7 +8,7 @@ const app = express();
 const server = createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-// ========== صفحة HTML (مختصرة وجميلة) ==========
+// ========== صفحة HTML ==========
 const HTML_PAGE = `<!DOCTYPE html>
 <html dir="rtl">
 <head>
@@ -32,6 +32,7 @@ const HTML_PAGE = `<!DOCTYPE html>
         .hidden { display: none; }
         .loader { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: white; animation: spin 1s ease-in-out infinite; margin-left: 10px; vertical-align: middle; }
         @keyframes spin { to { transform: rotate(360deg); } }
+        .instructions { margin-top: 15px; font-size: 14px; color: #666; }
     </style>
 </head>
 <body>
@@ -41,7 +42,10 @@ const HTML_PAGE = `<!DOCTYPE html>
         <input type="tel" id="phone" placeholder="مثال: 966512345678" dir="ltr">
         <button id="submitBtn">🔗 طلب رمز الاقتران</button>
         <div id="status" class="status"></div>
-        <div id="codeSection" class="hidden"><div class="code-box" id="codeDisplay"></div><div class="instructions">✨ أدخل هذا الرمز في واتساب: الإعدادات ← الأجهزة المرتبطة ← ربط جهاز</div></div>
+        <div id="codeSection" class="hidden">
+            <div class="code-box" id="codeDisplay"></div>
+            <div class="instructions">✨ أدخل هذا الرمز في واتساب: الإعدادات ← الأجهزة المرتبطة ← ربط جهاز ← الربط برقم الهاتف</div>
+        </div>
     </div>
     <script>
         const socket = io();
@@ -52,31 +56,46 @@ const HTML_PAGE = `<!DOCTYPE html>
         const codeDisplay = document.getElementById('codeDisplay');
 
         function showStatus(msg, type) { statusDiv.textContent = msg; statusDiv.className = 'status ' + type; }
+        
         btn.onclick = () => {
             const phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
-            if (!phone || phone.length < 8) return showStatus('❌ رقم غير صحيح', 'error');
-            btn.disabled = true; btn.innerHTML = '<span class="loader"></span> جاري الطلب...';
-            showStatus('⏳ جاري التجهيز... قد يستغرق 30 ثانية', 'info');
+            if (!phone || phone.length < 8) return showStatus('❌ رقم غير صحيح (يجب أن يكون 8 أرقام على الأقل)', 'error');
+            btn.disabled = true; 
+            btn.innerHTML = '<span class="loader"></span> جاري الاتصال بخوادم واتساب...';
+            showStatus('⏳ جاري التجهيز... قد يستغرق 20-40 ثانية', 'info');
             socket.emit('pair', { phone });
         };
-        socket.on('code', (data) => { btn.style.display = 'none'; phoneInput.disabled = true; codeDisplay.innerHTML = data.code; codeSection.classList.remove('hidden'); showStatus('✅ تم! أدخل الرمز', 'success'); });
-        socket.on('error', (msg) => { btn.disabled = false; btn.innerHTML = '🔗 طلب رمز الاقتران'; showStatus('❌ '+msg, 'error'); });
+        
+        socket.on('code', (data) => { 
+            btn.style.display = 'none'; 
+            phoneInput.disabled = true; 
+            codeDisplay.innerHTML = data.code; 
+            codeSection.classList.remove('hidden'); 
+            showStatus('✅ تم إنشاء الرمز! أدخله في واتساب خلال 3 دقائق', 'success'); 
+        });
+        
+        socket.on('error', (msg) => { 
+            btn.disabled = false; 
+            btn.innerHTML = '🔗 طلب رمز الاقتران'; 
+            showStatus('❌ ' + msg, 'error'); 
+        });
+        
         socket.on('connect', () => showStatus('✅ جاهز! أدخل رقم هاتفك', 'success'));
+        socket.on('disconnect', () => showStatus('❌ انقطع الاتصال بالخادم، جاري إعادة المحاولة...', 'error'));
     </script>
 </body>
 </html>`;
 
 app.get('/', (req, res) => res.send(HTML_PAGE));
 
-// ========== منطق البوت المبسط والقوي ==========
+// ========== منطق البوت ==========
 io.on('connection', (socket) => {
-    console.log('🟢 متصل:', socket.id);
+    console.log('🟢 عميل متصل:', socket.id);
 
     socket.on('pair', async ({ phone }) => {
         const cleanPhone = phone.replace(/\D/g, '');
-        console.log(`📱 طلب للرقم: ${cleanPhone}`);
+        console.log(`📱 [${socket.id}] طلب ربط للرقم: ${cleanPhone}`);
         
-        // استخدم مجلدًا مؤقتًا لكل جلسة
         const sessionDir = `/tmp/wa_auth_${socket.id}`;
         if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
         fs.mkdirSync(sessionDir);
@@ -87,7 +106,6 @@ io.on('connection', (socket) => {
                 auth: state,
                 browser: Browsers.macOS('Chrome'),
                 printQRInTerminal: false,
-                // إعدادات أساسية فقط للتجنب التعقيد
                 defaultQueryTimeoutMs: 30000,
                 keepAliveIntervalMs: 30000
             });
@@ -96,28 +114,46 @@ io.on('connection', (socket) => {
             
             let pairingRequested = false;
             sock.ev.on('connection.update', async (update) => {
-                console.log(`🔵 حالة الاتصال: ${update.connection}`);
-                // نطلب الرمز بمجرد أن يكون الاتصال جاهزًا أو مفتوحًا
+                console.log(`[${socket.id}] حالة الاتصال: ${update.connection}`);
+                
                 if ((update.connection === 'open' || update.connection === 'connecting') && !pairingRequested && !state.creds.registered) {
                     pairingRequested = true;
                     try {
                         const code = await sock.requestPairingCode(cleanPhone);
-                        console.log(`✅ رمز الاقتران لـ ${cleanPhone}: ${code}`);
+                        console.log(`[${socket.id}] 🔐 رمز الاقتران: ${code}`);
                         socket.emit('code', { code });
                     } catch (err) {
-                        console.error(`❌ فشل طلب الرمز: ${err.message}`);
-                        socket.emit('error', 'فشل طلب الرمز. تأكد من الرقم واتصل بالإنترنت.');
+                        console.error(`[${socket.id}] فشل طلب الرمز: ${err.message}`);
+                        socket.emit('error', 'فشل طلب الرمز. تأكد من صحة الرقم (يجب أن يكون مسجلاً في واتساب)');
                     }
                 } else if (update.connection === 'close') {
-                    socket.emit('error', 'انقطع الاتصال، حاول مرة أخرى.');
+                    socket.emit('error', 'انقطع الاتصال بخوادم واتساب، حاول مرة أخرى');
                 }
             });
+            
+            sock.ev.on('error', (err) => {
+                console.error(`[${socket.id}] خطأ: ${err.message}`);
+            });
+            
         } catch (err) {
-            console.error(`🔥 خطأ عام: ${err.message}`);
-            socket.emit('error', 'خطأ في الخادم، يرجى المحاولة لاحقًا.');
+            console.error(`[${socket.id}] خطأ عام: ${err.message}`);
+            socket.emit('error', 'خطأ في الخادم: ' + err.message);
         }
+    });
+    
+    socket.on('disconnect', () => {
+        console.log('🔴 عميل قطع الاتصال:', socket.id);
+        const sessionDir = `/tmp/wa_auth_${socket.id}`;
+        if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
     });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 يعمل على المنفذ ${PORT}`)); 
+server.listen(PORT, () => {
+    console.log(`
+    ════════════════════════════════════════
+    🚀 بوت ربط واتساب يعمل على:
+    🌐 http://localhost:${PORT}
+    ════════════════════════════════════════
+    `);
+}); 
