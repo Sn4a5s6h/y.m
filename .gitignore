@@ -1,0 +1,25 @@
+# ملفات البيئة والحساسة
+.env
+.env.*
+!.env.example
+
+# مجلدات التبعيات والمكتبات
+node_modules/
+
+# ملفات الجلسات والحسابات
+auth_sessions/
+/tmp/wa_auth_*
+
+# ملفات السجلات
+*.log
+npm-debug.log*
+
+# ملفات نظام التشغيل
+.DS_Store
+Thumbs.db
+
+# ملفات المحرر
+.vscode/
+.idea/
+*.swp
+*.swo
