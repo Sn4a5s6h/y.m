@@ -1,12 +1,9 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import makeWASocket, { useMultiFileAuthState, Browsers } from '@whiskeysockets/baileys';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { makeWASocket, useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import fs from 'fs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = createServer(app);
 const io = new Server(server, {
@@ -68,7 +65,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     <div class="container">
         <div class="icon">💬</div>
         <h1>ربط حساب واتساب</h1>
-        <div class="subtitle">أدخل رقم هاتفك لربطه بخدمتنا</div>
+        <div class="subtitle">أدخل رقم هاتفك لربطه بهذا الجهاز عن بُعد</div>
         <input type="tel" id="phone" placeholder="مثال: 966512345678" dir="ltr">
         <button id="submitBtn" onclick="requestPairing()">🔗 طلب رمز الاقتران</button>
         <div id="status" class="status"></div>
@@ -126,51 +123,94 @@ const HTML_PAGE = `<!DOCTYPE html>
 app.get('/', (req, res) => res.send(HTML_PAGE));
 
 // ========== منطق البوت ==========
-const sessions = new Map();
-
 io.on('connection', (socket) => {
-    console.log('🟢 متصل:', socket.id);
+    console.log('🟢 عميل متصل:', socket.id);
     
     socket.on('pair', async (data) => {
         const phone = data.phone.replace(/\D/g, '');
-        console.log(`📱 [${socket.id}] طلب للرقم: ${phone}`);
+        console.log(`📱 [${socket.id}] طلب ربط للرقم: ${phone}`);
         
+        // مجلد مؤقت للجلسة
         const sessionDir = `/tmp/auth_${socket.id}`;
-        if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
+        if (fs.existsSync(sessionDir)) {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+        }
         fs.mkdirSync(sessionDir, { recursive: true });
         
         try {
+            // الحصول على أحدث إصدار من البروتوكول
+            const { version } = await fetchLatestBaileysVersion();
+            
+            // تحميل حالة المصادقة
             const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+            
+            // إنشاء العميل
             const sock = makeWASocket({
+                version,
                 auth: state,
                 browser: Browsers.macOS('Chrome'),
                 printQRInTerminal: false,
-                version: [2, 3000, 1015901307]
+                defaultQueryTimeoutMs: 60000,
+                keepAliveIntervalMs: 30000
             });
             
+            // حفظ بيانات الاعتماد عند التحديث
             sock.ev.on('creds.update', saveCreds);
             
+            // مراقبة حالة الاتصال
             sock.ev.on('connection.update', async (update) => {
-                if (update.connection === 'open') {
-                    console.log(`✅ [${socket.id}] الاتصال مفتوح`);
+                console.log(`[${socket.id}] حالة الاتصال:`, update.connection);
+                
+                // عندما يكون الاتصال في حالة "connecting" أو "open"
+                if (update.connection === 'open' && !sock.authState.creds.registered) {
+                    console.log(`[${socket.id}] طلب رمز الاقتران...`);
                     try {
                         const code = await sock.requestPairingCode(phone);
-                        console.log(`🔐 [${socket.id}] الرمز: ${code}`);
+                        console.log(`[${socket.id}] 🔐 رمز الاقتران: ${code}`);
                         socket.emit('code', { code });
                     } catch (err) {
-                        socket.emit('error', err.message);
+                        console.error(`[${socket.id}] فشل طلب الرمز:`, err);
+                        socket.emit('error', err.message || 'فشل طلب الرمز');
                     }
+                }
+                
+                // إذا حدث خطأ في الاتصال
+                if (update.connection === 'close') {
+                    console.log(`[${socket.id}] تم قطع الاتصال`);
+                    socket.emit('error', 'انقطع الاتصال، حاول مرة أخرى');
                 }
             });
             
+            // معالجة الأخطاء العامة
+            sock.ev.on('error', (err) => {
+                console.error(`[${socket.id}] خطأ في الجلسة:`, err);
+                socket.emit('error', err.message);
+            });
+            
         } catch (err) {
-            console.error(`❌ [${socket.id}] خطأ:`, err);
-            socket.emit('error', err.message);
+            console.error(`[${socket.id}] خطأ عام:`, err);
+            socket.emit('error', err.message || 'حدث خطأ في الخادم');
         }
     });
     
-    socket.on('disconnect', () => console.log('🔴 قطع:', socket.id));
+    socket.on('disconnect', () => {
+        console.log('🔴 عميل قطع الاتصال:', socket.id);
+        // تنظيف مجلد الجلسة
+        const sessionDir = `/tmp/auth_${socket.id}`;
+        if (fs.existsSync(sessionDir)) {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+        }
+    });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 يعمل على http://localhost:${PORT}`));
+server.listen(PORT, () => {
+    console.log(`
+    ════════════════════════════════════════
+    🚀 بوت ربط واتساب يعمل على:
+    🌐 http://localhost:${PORT}
+    
+    ✨ انتظر 30-60 ثانية عند أول طلب
+    ════════════════════════════════════════
+    `);
+});
