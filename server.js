@@ -1,14 +1,14 @@
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
-import { makeWASocket, useMultiFileAuthState, Browsers } from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, Browsers, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
 import fs from 'fs';
 
 const app = express();
 const server = createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, { cors: { origin: "*" }, transports: ['websocket', 'polling'] });
 
-// ========== صفحة HTML ==========
+// ========== صفحة HTML مبسطة ==========
 const HTML_PAGE = `<!DOCTYPE html>
 <html dir="rtl">
 <head>
@@ -39,7 +39,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     <div class="container">
         <div class="icon">💬</div>
         <h1>ربط حساب واتساب</h1>
-        <input type="tel" id="phone" placeholder="مثال: 966512345678" dir="ltr">
+        <input type="tel" id="phone" placeholder="مثال: 967776730674" dir="ltr">
         <button id="submitBtn">🔗 طلب رمز الاقتران</button>
         <div id="status" class="status"></div>
         <div id="codeSection" class="hidden">
@@ -59,10 +59,10 @@ const HTML_PAGE = `<!DOCTYPE html>
         
         btn.onclick = () => {
             const phone = phoneInput.value.trim().replace(/[^0-9]/g, '');
-            if (!phone || phone.length < 8) return showStatus('❌ رقم غير صحيح (يجب أن يكون 8 أرقام على الأقل)', 'error');
+            if (!phone || phone.length < 10) return showStatus('❌ رقم غير صحيح (10 أرقام على الأقل)', 'error');
             btn.disabled = true; 
             btn.innerHTML = '<span class="loader"></span> جاري الاتصال بخوادم واتساب...';
-            showStatus('⏳ جاري التجهيز... قد يستغرق 20-40 ثانية', 'info');
+            showStatus('⏳ جاري التجهيز... قد يستغرق 30-45 ثانية', 'info');
             socket.emit('pair', { phone });
         };
         
@@ -88,7 +88,7 @@ const HTML_PAGE = `<!DOCTYPE html>
 
 app.get('/', (req, res) => res.send(HTML_PAGE));
 
-// ========== منطق البوت ==========
+// ========== منطق البوت - التصحيح الأساسي هنا ==========
 io.on('connection', (socket) => {
     console.log('🟢 عميل متصل:', socket.id);
 
@@ -96,43 +96,59 @@ io.on('connection', (socket) => {
         const cleanPhone = phone.replace(/\D/g, '');
         console.log(`📱 [${socket.id}] طلب ربط للرقم: ${cleanPhone}`);
         
+        // مجلد مؤقت لكل جلسة
         const sessionDir = `/tmp/wa_auth_${socket.id}`;
         if (fs.existsSync(sessionDir)) fs.rmSync(sessionDir, { recursive: true, force: true });
         fs.mkdirSync(sessionDir);
 
         try {
+            const { version } = await fetchLatestBaileysVersion();
             const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+            
             const sock = makeWASocket({
+                version,
                 auth: state,
                 browser: Browsers.macOS('Chrome'),
                 printQRInTerminal: false,
-                defaultQueryTimeoutMs: 30000,
+                defaultQueryTimeoutMs: 60000,
                 keepAliveIntervalMs: 30000
             });
 
             sock.ev.on('creds.update', saveCreds);
             
             let pairingRequested = false;
+            
+            // 🔑 المفتاح: مراقبة حالة الاتصال وطلب الرمز فقط عندما يكون "connecting" أو "open"
             sock.ev.on('connection.update', async (update) => {
-                console.log(`[${socket.id}] حالة الاتصال: ${update.connection}`);
+                const connectionState = update.connection;
+                console.log(`[${socket.id}] حالة الاتصال: ${connectionState}`);
                 
-                if ((update.connection === 'open' || update.connection === 'connecting') && !pairingRequested && !state.creds.registered) {
+                // الأهم: ننتظر حتى يصبح الاتصال في حالة "connecting" قبل طلب الرمز
+                if ((connectionState === 'connecting' || connectionState === 'open') 
+                    && !pairingRequested && !state.creds.registered) {
+                    
                     pairingRequested = true;
+                    console.log(`[${socket.id}] بدء طلب رمز الاقتران للرقم: ${cleanPhone}`);
+                    
                     try {
                         const code = await sock.requestPairingCode(cleanPhone);
                         console.log(`[${socket.id}] 🔐 رمز الاقتران: ${code}`);
                         socket.emit('code', { code });
                     } catch (err) {
                         console.error(`[${socket.id}] فشل طلب الرمز: ${err.message}`);
-                        socket.emit('error', 'فشل طلب الرمز. تأكد من صحة الرقم (يجب أن يكون مسجلاً في واتساب)');
+                        socket.emit('error', 'فشل طلب الرمز. تأكد من صحة الرقم واتصل بالإنترنت.');
+                        pairingRequested = false;
                     }
-                } else if (update.connection === 'close') {
+                }
+                
+                if (connectionState === 'close') {
+                    console.log(`[${socket.id}] تم قطع الاتصال`);
                     socket.emit('error', 'انقطع الاتصال بخوادم واتساب، حاول مرة أخرى');
                 }
             });
             
             sock.ev.on('error', (err) => {
-                console.error(`[${socket.id}] خطأ: ${err.message}`);
+                console.error(`[${socket.id}] خطأ في الجلسة: ${err.message}`);
             });
             
         } catch (err) {
@@ -149,11 +165,4 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`
-    ════════════════════════════════════════
-    🚀 بوت ربط واتساب يعمل على:
-    🌐 http://localhost:${PORT}
-    ════════════════════════════════════════
-    `);
-}); 
+server.listen(PORT, () => console.log(`🚀 بوت ربط واتساب يعمل على المنفذ ${PORT}`));
