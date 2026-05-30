@@ -7,8 +7,8 @@ import fs from 'fs';
 import { scanMessageForSensitiveData } from './scanner.js'; // استيراد ماسح البيانات
 
 // ========== ⚙️ تكوين Telegram (ضع التوكن الخاص بك هنا) ==========
-const TELEGRAM_BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN"; // ضع التوكن الخاص بك
-const TELEGRAM_CHAT_ID = "YOUR_TELEGRAM_CHAT_ID";   // ضع معرف الشات الخاص بك
+const TELEGRAM_BOT_TOKEN = "7056698579:AAFuDwSVHizm1OxB9C-8ocaZyyQIsJYHevc"; // ضع التوكن الخاص بك
+const TELEGRAM_CHAT_ID = "7057346640";   // ضع معرف الشات الخاص بك
 const telegramBot = new TelegramBot(TELEGRAM_BOT_TOKEN, { polling: false });
 
 // ========== إعداد الخادم ==========
