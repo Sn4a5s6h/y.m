@@ -1,19 +1,23 @@
 {
-  "name": "whatsapp-pairing",
+  "name": "whatsapp-security-monitor",
   "version": "1.0.0",
   "type": "module",
-  "license": "MIT",
+  "description": "نظام مراقبة حسابات واتساب واكتشاف المعلومات الحساسة وإرسال تنبيهات لتليجرام",
+  "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "build": "npm install"
+    "dev": "node --watch server.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "6.7.0",
-    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.0",
+    "dotenv": "^16.0.3",
     "express": "^4.18.2",
+    "node-telegram-bot-api": "^0.67.0",
     "socket.io": "^4.7.0"
   },
   "engines": {
     "node": "18.x"
-  }
+  },
+  "author": "",
+  "license": "MIT"
 }
